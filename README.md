@@ -1,6 +1,9 @@
 # dannys-dinner-sql-challenge1
 This documents the first case study of an 8-week-long analysis challenge.
-'''
+
+
+
+```
 CREATE SCHEMA dannys_diner;
 SET search_path = dannys_diner;
 
@@ -48,10 +51,10 @@ CREATE TABLE members (
   "customer_id" VARCHAR(1),
   "join_date" DATE
 );
-'''
 
 INSERT INTO members
   ("customer_id", "join_date")
 VALUES
   ('A', '2021-01-07'),
   ('B', '2021-01-09');
+```
