@@ -1,8 +1,12 @@
 # dannys-dinner-sql-challenge1
-This documents the first case study of an 8-week-long analysis challenge.
+This documents the first case study of an 8-week-long analysis challenge. 
+
+Danny is the owner of a Japanese Diner - Danny's Diner which he has been running since the beginning of 2021. The restaurant sells three lovely meals: sushi, curry, and ramen. Danny has been capturing customer data but has no idea how to harness it to make informed decisions. He needs my assistance to help the restaurant stay afloat. 
+
+Danny wants to use the data to answer a few simple questions about his customers, especially about their visiting patterns, how much money they've spent, and also which menu items are their favorite. Having this deeper connection with his customers will help him deliver a better and more personalized experience for his loyal customers. He plans on using these insights to help him decide whether he should expand the existing customer loyalty program - additionally, he needs help to generate some basic datasets so his team can easily inspect the data without needing to use SQL.
 
 
-
+Here is a the code snippet needed to create the necessary tables and load data into them.
 ```
 CREATE SCHEMA dannys_diner;
 SET search_path = dannys_diner;
