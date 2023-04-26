@@ -1,0 +1,317 @@
+```
+-- 1. What is the total amount each customer spent at the restaurant?
+SELECT
+  sales.customer_id,
+  CONCAT('$', SUM(menu.price)) AS total_amount_spent -- I concatenated the dollar sign to the summed amount. 
+FROM
+  dannys_diner.sales
+JOIN dannys_diner.menu -- Information about the price 
+  ON sales.product_id = menu.product_id
+GROUP BY
+  sales.customer_id
+ORDER BY 
+  sales.customer_id;
+
+
+-- 2. How many days has each customer visited the restaurant?
+
+SELECT
+  customer_id,
+--I used the distinct function to remove records where a customer purchased multiple items on the same day
+  COUNT(DISTINCT order_date) || ' days' AS number_of_days  
+FROM dannys_diner.sales
+GROUP BY 1
+ORDER BY 1
+
+-- 3. What was the first item(s) from the menu purchased by each customer?
+  WITH ranked_orders AS (
+    -- Created a ranking and held it in a CTE
+    SELECT
+      sales.customer_id,
+      sales.order_date,
+      menu.product_name,
+      RANK () OVER (
+        -- I ranked each customers purchase based on the date they placed the order. For each customer, earlier order sales are ranked higher then later dates.
+        PARTITION BY sales.customer_id
+        ORDER BY
+          sales.order_date
+      ) AS order_rank
+    FROM
+      dannys_diner.sales
+      JOIN dannys_diner.menu ON sales.product_id = menu.product_id
+  )
+SELECT
+  DISTINCT customer_id, -- To account for the case where a customer purchased the same item multiple times on their first order date. In such case, both entries will have a rank of 1.
+  order_date,
+  product_name
+FROM ranked_orders
+WHERE order_rank = 1
+ORDER BY customer_id;
+
+--OR--
+
+WITH first_buy AS (
+  SELECT 
+    customer_id,
+    MIN(order_date) AS first_order_date
+  FROM dannys_diner.sales
+  GROUP BY customer_id
+  ORDER BY 1
+)
+SELECT 
+  DISTINCT sales.customer_id, -- To account for the case where a customer purchased the same item multiple times on their first order date.
+  first_buy.first_order_date,
+  menu.product_name
+FROM dannys_diner.sales
+  INNER JOIN first_buy
+  ON first_buy.customer_id = sales.customer_id 
+  AND first_buy.first_order_date = sales.order_date
+  INNER JOIN dannys_diner.menu 
+  ON menu.product_id = sales.product_id
+ORDER BY sales.customer_id;
+
+--OR--
+
+SELECT DISTINCT s.customer_id, m.product_name, s.order_date
+FROM dannys_diner.sales s
+JOIN dannys_diner.menu m
+  ON s.product_id = m.product_id
+WHERE order_date IN (
+  SELECT MIN(order_date) 
+  FROM dannys_diner.sales
+  GROUP BY customer_id
+)
+ORDER BY customer_id
+
+
+-- 4. What is the most purchased item on the menu and how many times was it purchased by all customers?
+
+SELECT
+  menu.product_name,
+  COUNT (sales.product_id) AS total_purchases
+FROM
+  dannys_diner.sales
+  JOIN dannys_diner.menu ON sales.product_id = menu.product_id
+GROUP BY
+  menu.product_name
+ORDER BY
+  total_purchases DESC
+LIMIT 1; -- This limits my output to the first value on the list. Since I have ordered the query output by total_purchases in descending order, I get the most purchased item at the top of the query output
+
+
+-- 5. Which item(s) was the most popular for each customer?
+
+WITH popular_rank AS (
+  SELECT
+    sales.customer_id,
+    menu.product_name,
+    sales.product_id,
+    COUNT (sales.product_id) AS item_quantity, -- To find the most popular item, I made a count of all items bought by each customer.
+    RANK () OVER (  -- Based on the item purchase count in the neighboring column, I created a rank column that ranks the items bought.
+      PARTITION BY customer_id
+      ORDER BY COUNT (sales.product_id) DESC -- The higher the purchase count, the higher the ranking (1 is the highest ranking in this case).
+    ) AS ranking
+  FROM dannys_diner.sales
+  JOIN dannys_diner.menu 
+    ON sales.product_id = menu.product_id
+  GROUP BY
+      sales.customer_id,
+      menu.product_name,
+      sales.product_id
+  ORDER BY sales.customer_id
+)
+SELECT
+  customer_id,
+  product_name,
+  item_quantity
+FROM popular_rank
+WHERE ranking = 1;
+  
+  
+-- 6. Which item was purchased first by the customer after they became a member and what date was it? (including the date they joined)
+
+  WITH first_purchase AS (
+    SELECT
+      sales.customer_id,
+      sales.order_date,
+      menu.product_name,
+      RANK () OVER (
+        -- After isolating the days when the customer plalced an order after they became a member, I ranked the orders by the order date to find the ealiest order date after they became a member
+        PARTITION BY sales.customer_id
+        ORDER BY
+          order_date
+      ) AS rank
+    FROM
+      dannys_diner.sales
+      JOIN dannys_diner.menu ON menu.product_id = sales.product_id
+      JOIN dannys_diner.members ON sales.customer_id = members.customer_id
+    WHERE
+      sales.order_date >= members.join_date -- I used a WHERE filter to find the dates an order was placed after a customer became a member
+    ORDER BY
+      sales.customer_id
+  )
+SELECT
+  DISTINCT customer_id,
+  order_date,
+  product_name
+FROM
+  first_purchase
+WHERE
+  rank = 1;  -- This is to isolate the most recent date after/on a customers join date.
+
+-- 7. Which menu item(s) was purchased just before the customer became a member and when?
+
+WITH first_purchase AS (
+  SELECT
+    sales.customer_id,
+    sales.order_date,
+    menu.product_name,
+      /* We need to rank the sales records recorded before a customer became a member by the order date in descending order 
+          so that a rank of one is given to most recent date before a customer became a member. */
+    RANK () OVER (
+      PARTITION BY sales.customer_id
+      ORDER BY order_date DESC
+    ) AS rank
+  FROM
+      dannys_diner.sales
+  JOIN dannys_diner.menu 
+    ON menu.product_id = sales.product_id
+  JOIN dannys_diner.members 
+    ON sales.customer_id = members.customer_id
+  WHERE sales.order_date < members.join_date -- This is used to filter for only the sales record that occured before a customer became a member.
+  ORDER BY sales.customer_id
+)
+SELECT
+  DISTINCT customer_id,
+  order_date,
+  product_name
+FROM first_purchase
+WHERE rank = 1;
+  
+  
+-- 8. What is the number of unique menu items and total amount spent for each member before they became a member?
+
+SELECT
+  sales.customer_id,
+  COUNT (DISTINCT sales.product_id),
+  -- This is to count the distinct order items
+  SUM (menu.price)
+FROM
+  dannys_diner.sales
+JOIN dannys_diner.menu 
+  ON sales.product_id = menu.product_id
+JOIN dannys_diner.members 
+  ON sales.customer_id = members.customer_id
+WHERE join_date > order_date -- To filter for only the order dates that occured before a customer became a member.
+GROUP BY sales.customer_id
+ORDER BY 1;
+  
+-- 9. If each $1 spent equates to 10 points and sushi has a 2x points multiplier - how many points would each customer have?
+WITH point_multiplier AS (
+  SELECT
+    *,
+    CASE
+      WHEN menu.product_name = 'sushi' THEN (menu.price * 10 * 2) --If the product name is Sushi, the points for the purchase is doubled.
+        ELSE (menu.price * 10)
+    END AS points
+  FROM
+    dannys_diner.sales
+  JOIN dannys_diner.menu 
+    ON sales.product_id = menu.product_id
+)
+SELECT
+  customer_id,
+  SUM (points) as points -- Aggregating the points to show total accumulated by each customer
+FROM
+  point_multiplier
+GROUP BY
+  customer_id
+ORDER BY
+  points DESC; -- To show the customers by their accumulated points in descending order
+
+-- 10. In the first week after a customer joins the program (including their join date) they earn 2x points on all items,
+--not just sushi - how many points do customer A and B have at the end of January?
+
+SELECT
+  sales.customer_id,
+  SUM (
+    CASE
+      WHEN sales.order_date BETWEEN (members.join_date) AND (members.join_date::DATE + INTERVAL '6 DAYS') -- To limit the 2x multiplier to only one week after a customer joins
+        THEN (menu.price * 10 * 2)
+      WHEN menu.product_name = 'sushi' --Regardless of the order date, a user that orders Sushi has a 2x multiplier on the points
+        THEN (2 * 10 * menu.price)
+      ELSE (menu.price * 10) -- If a customers order is not a week after their join date or they did not order Sushi, they only earn 10 points on their order.
+    END
+  ) AS points
+FROM dannys_diner.sales
+JOIN dannys_diner.menu 
+  ON sales.product_id = menu.product_id
+JOIN dannys_diner.members 
+  ON sales.customer_id = members.customer_id
+GROUP BY sales.customer_id
+ORDER BY sales.customer_id;
+
+
+-- 11. Preparing a combo table for Danny and his team can use to quickly derive insights without needing to join the underlying tables using SQL.
+SELECT
+  sales.customer_id,
+  sales.order_date,
+  menu.product_name,
+  menu.price,
+  CASE
+  -- As a part of the requirements, if a customer places an order and they're not a member, we give them the 'N' tag and the 'Y' tag if they're a member
+    WHEN sales.order_date >= members.join_date 
+    THEN 'Y'
+    ELSE 'N'
+  END AS member
+FROM
+  dannys_diner.sales
+JOIN dannys_diner.menu 
+  ON sales.product_id = menu.product_id
+LEFT JOIN dannys_diner.members 
+  ON sales.customer_id = members.customer_id
+ORDER BY sales.customer_id, sales.order_date;
+  
+-- 12. Danny also requires further information about the ranking of customer products, but he purposely does not need the ranking for non-member purchases so he expects null ranking
+--values for the records when customers are not yet part of the loyalty program.
+
+WITH joint_sales AS (
+  SELECT
+    sales.customer_id,
+    sales.order_date,
+    members.join_date,
+    menu.product_name,
+    menu.price,
+    CASE
+      WHEN sales.order_date >= members.join_date THEN 'Y'
+        ELSE 'N'
+      END AS member
+    FROM
+      dannys_diner.sales
+    JOIN dannys_diner.menu 
+      ON sales.product_id = menu.product_id
+    LEFT JOIN dannys_diner.members 
+      ON sales.customer_id = members.customer_id
+    ORDER BY 1, 2
+  )
+SELECT
+  customer_id,
+  order_date,
+  product_name,
+  price,
+  member,
+  CASE
+    WHEN member = 'N' -- If a customer is not a member, we give them a ranking of 'null'
+    THEN NULL
+    WHEN member = 'Y' -- If a customer is a member, we give them a ranking based on their order date.
+    THEN RANK () OVER (
+      PARTITION BY customer_id,
+      member -- I partitioned the window function across the customer_id and member status. This way, for across each customer and member status, I assign a ranking ordered by order_date
+      ORDER BY
+        order_date
+    )
+  END AS ranking
+FROM
+  joint_sales
+
+```
